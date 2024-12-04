@@ -1,3 +1,5 @@
+from dotenv import load_dotenv
+load_dotenv()  # This loads the environment variables from the .env file
 from flask import Flask, jsonify, request
 import requests
 from bs4 import BeautifulSoup
