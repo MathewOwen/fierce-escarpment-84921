@@ -1,52 +1,54 @@
-from dotenv import load_dotenv
-load_dotenv()  # This loads the environment variables from the .env file
 from flask import Flask, jsonify, request
 import requests
 from bs4 import BeautifulSoup
 import openai
 
-# Initialize Flask app
 app = Flask(__name__)
 
-# OpenAI API Key for ChatGPT
-openai.api_key = 'your-openai-api-key'
+# OpenAI API Key (from the .env file)
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# Scrape route to get test data
-@app.route('/scrape', methods=['GET'])
-def scrape_tests():
-    # Your WooCommerce site URL or API endpoint to fetch test data
-    url = "https://your-woocommerce-site.com/products"
+# Scrape Darmklachten.nl for test data
+def scrape_darmklachten():
+    url = "https://www.darmklachten.nl/"
     response = requests.get(url)
     soup = BeautifulSoup(response.content, 'html.parser')
-
-    # Scraping logic (adapt based on your actual product structure)
     test_data = []
-    for product in soup.find_all('div', class_='product-item'):
-        title = product.select_one('.product-title').text.strip()
-        description = product.select_one('.product-description').text.strip()
+    
+    for section in soup.select('.test-item'):
+        title = section.select_one('h2').get_text(strip=True)
+        description = section.select_one('p').get_text(strip=True)
         test_data.append({'title': title, 'description': description})
-
-    return jsonify({'tests': test_data})
+    
+    return test_data
 
 # Recommendation route
 @app.route('/recommend', methods=['POST'])
 def recommend_test():
-    user_input = request.json.get('symptoms', '').lower()
+    symptoms = request.json.get('symptoms', '').lower()
+    description = request.json.get('description', '').lower()
     
-    # Step 1: Use ChatGPT to process symptoms
-    chatgpt_response = openai.Completion.create(
-        model="gpt-4",
-        prompt=f"Given the symptoms: {user_input}, recommend the best tests from the following list of tests and their descriptions:\n\n{scraped_data}",
-        temperature=0.5,
-        max_tokens=100
+    # Scrape the data for available tests
+    scraped_data = scrape_darmklachten()
+
+    # Construct the query for OpenAI
+    query = f"Given the symptoms: {symptoms} and the description: {description}, recommend the best test from the following options: {scraped_data}"
+    
+    # Get OpenAI's recommendation
+    openai_response = openai.Completion.create(
+        engine="text-davinci-003",  # You can use a more suitable OpenAI model if needed
+        prompt=query,
+        max_tokens=150
     )
     
-    # Step 2: Process ChatGPT response to extract the recommendation
-    chatgpt_recommendation = chatgpt_response.choices[0].text.strip()
+    recommendation = openai_response.choices[0].text.strip()
+    
+    # Simple matching logic for testing based on scraped data
+    for test in scraped_data:
+        if symptoms in test['description'].lower():
+            return jsonify({'recommendation': test['title'], 'reason': test['description']})
 
-    return jsonify({
-        'recommendation': chatgpt_recommendation
-    })
+    return jsonify({'recommendation': "Geen specifieke test gevonden", 'reason': "Neem contact op voor meer hulp."})
 
 if __name__ == '__main__':
     app.run(debug=True)
