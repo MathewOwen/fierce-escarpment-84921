@@ -7,7 +7,7 @@ import os
 app = Flask(__name__)
 
 # Set OpenAI API key from environment variable
-openai.api_key = os.getenv('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')
+openai.api_key = os.getenv('OPENAI_API_KEY')  # Change this to use a valid environment variable
 
 # Root route (home page)
 @app.route('/')
@@ -19,11 +19,15 @@ def home():
 def scrape_darmklachten():
     url = "https://www.darmklachten.nl/"
     response = requests.get(url)
+
+    if response.status_code != 200:
+        return jsonify({'error': 'Failed to retrieve data from the website.'}), 500
+
     soup = BeautifulSoup(response.content, 'html.parser')
 
     # Adjust the selectors based on the actual structure of the site
     test_data = []
-    for section in soup.select('.test-item'):  # Example selector, replace as needed
+    for section in soup.select('.test-item'):  # Ensure this selector matches the actual HTML structure
         title = section.select_one('h2').get_text(strip=True)
         description = section.select_one('p').get_text(strip=True)
         test_data.append({'title': title, 'description': description})
@@ -33,9 +37,9 @@ def scrape_darmklachten():
 # Recommendation route using OpenAI for smart recommendations based on symptoms and description
 @app.route('/recommend', methods=['POST'])
 def recommend_test():
-    # Get symptoms and description from the request body
-    symptoms = request.json.get('symptoms', '').lower()
-    description = request.json.get('description', '').lower()
+    data = request.json
+    symptoms = data.get('symptoms', '').lower()
+    description = data.get('description', '').lower()
 
     # Simple check for missing input
     if not symptoms or not description:
@@ -52,9 +56,8 @@ def recommend_test():
     prompt = f"Based on the symptoms '{symptoms}' and the description '{description}', recommend the best test from the following list: {scraped_data}"
 
     try:
-        # OpenAI API call to analyze the symptoms and description
         response = openai.Completion.create(
-            engine="text-davinci-003",  # You can use a different model based on your requirements
+            engine="text-davinci-003",  # Ensure this model is appropriate for your needs
             prompt=prompt,
             max_tokens=100,
             temperature=0.7
