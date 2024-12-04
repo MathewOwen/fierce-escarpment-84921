@@ -76,4 +76,5 @@ def recommend_test():
         return jsonify({'error': f"Error during OpenAI processing: {str(e)}"}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    port = int(os.environ.get('PORT', 5000))  # Use the PORT environment variable
+    app.run(host='0.0.0.0', port=port)
