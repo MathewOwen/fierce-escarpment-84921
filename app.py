@@ -1,22 +1,21 @@
+import os
 from flask import Flask, jsonify, request
 import requests
 from bs4 import BeautifulSoup
 import openai
-import os
+from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
 
 app = Flask(__name__)
 
-# Set OpenAI API key from environment variable
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")  # Ensure you have your API key in the environment
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# Root route (home page)
 @app.route('/')
 def home():
-    return "Welcome to the Darmklachten App! Use /scrape to get test data or /recommend to get test recommendations based on symptoms."
+    return "Welcome to the Smart Test Recommendation API!"
 
-# Scrape route
 @app.route('/scrape', methods=['GET'])
-def scrape_darmklachten():
+def scrape_tests():
     url = "https://www.darmklachten.nl/"
     response = requests.get(url)
 
@@ -24,57 +23,52 @@ def scrape_darmklachten():
         return jsonify({'error': 'Failed to retrieve data from the website.'}), 500
 
     soup = BeautifulSoup(response.content, 'html.parser')
-
-    # Adjust the selectors based on the actual structure of the site
     test_data = []
-    for section in soup.select('.test-item'):  # Ensure this selector matches the actual HTML structure
+    for section in soup.select('.test-item'):  # Adjust selector based on site structure
         title = section.select_one('h2').get_text(strip=True)
         description = section.select_one('p').get_text(strip=True)
         test_data.append({'title': title, 'description': description})
-
+    
     return jsonify({'tests': test_data})
 
-# Recommendation route using OpenAI for smart recommendations based on symptoms and description
+def generate_embeddings(texts):
+    response = openai.Embedding.create(
+        input=texts,
+        model="text-embedding-ada-002"
+    )
+    return [r['embedding'] for r in response['data']]
+
 @app.route('/recommend', methods=['POST'])
 def recommend_test():
     data = request.json
     symptoms = data.get('symptoms', '').lower()
-    description = data.get('description', '').lower()
+    if not symptoms:
+        return jsonify({'error': 'Please provide symptoms.'}), 400
 
-    # Simple check for missing input
-    if not symptoms or not description:
-        return jsonify({'error': 'Please provide both symptoms and description.'}), 400
-
-    # Load test data (you can either scrape this or use a static list)
     scraped_data = [
         {"title": "Darmparasieten Test", "description": "Voor klachten zoals diarree, opgeblazen gevoel."},
         {"title": "Glutenintolerantie Test", "description": "Voor klachten gerelateerd aan gluten."},
-        # Add more tests here...
+        # Add more tests...
     ]
 
-    # Build a prompt for OpenAI to help with test recommendation based on symptoms and description
-    prompt = f"Based on the symptoms '{symptoms}' and the description '{description}', recommend the best test from the following list: {scraped_data}"
-
     try:
-        response = openai.Completion.create(
-            engine="text-davinci-003",  # Ensure this model is appropriate for your needs
-            prompt=prompt,
-            max_tokens=100,
-            temperature=0.7
-        )
+        # Combine symptoms and descriptions for embeddings
+        texts = [symptoms] + [test['description'] for test in scraped_data]
+        embeddings = generate_embeddings(texts)
+        
+        # Calculate cosine similarity
+        symptom_embedding = np.array(embeddings[0]).reshape(1, -1)
+        test_embeddings = np.array(embeddings[1:])
+        similarities = cosine_similarity(symptom_embedding, test_embeddings).flatten()
 
-        # Get the recommendation from the OpenAI API response
-        recommendation = response.choices[0].text.strip()
-
-        # If the OpenAI model does not return a recommendation, fall back to scraped data logic
-        if not recommendation:
-            return jsonify({'recommendation': "Geen specifieke test gevonden", 'reason': "Neem contact op voor meer hulp."})
-
-        return jsonify({'recommendation': recommendation, 'reason': 'Test is recommended based on input.'})
-
+        # Find the most relevant test
+        best_match_idx = np.argmax(similarities)
+        best_test = scraped_data[best_match_idx]
+        return jsonify({'recommendation': best_test, 'similarity_score': similarities[best_match_idx]})
+    
     except Exception as e:
-        return jsonify({'error': f"Error during OpenAI processing: {str(e)}"}), 500
+        return jsonify({'error': f"Error during recommendation: {str(e)}"}), 500
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))  # Use the PORT environment variable
-    app.run(host='0.0.0.0', port=port, debug=False)  # Ensure debug is off for production
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
