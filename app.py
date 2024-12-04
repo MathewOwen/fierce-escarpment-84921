@@ -7,7 +7,7 @@ import os
 app = Flask(__name__)
 
 # Set OpenAI API key from environment variable
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")  # Change this to use a valid environment variable
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")  # Ensure you have your API key in the environment
 
 # Root route (home page)
 @app.route('/')
@@ -77,4 +77,4 @@ def recommend_test():
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))  # Use the PORT environment variable
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=port, debug=False)  # Ensure debug is off for production
